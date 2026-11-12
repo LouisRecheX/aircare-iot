@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AirCare – painel MQTT</title>
+<script src="https://unpkg.com/mqtt@5.3.4/dist/mqtt.min.js"></script>
+<style>
+:root{--bg:#f3f6f8;--ink:#14212b;--muted:#5b6b78;--card:#ffffff;--line:#d5dee5;--air:#1f7a8c;--warn:#c9851a;--crit:#b23a48;--ok:#2f7d4f}
+@media (prefers-color-scheme:dark){:root{color-scheme:dark;--bg:#0f1a22;--ink:#e6eef3;--muted:#93a4b1;--card:#16252f;--line:#26394a;--air:#4fb3c4;--warn:#e0a443;--crit:#e06a78;--ok:#5cb87f}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 "Segoe UI",system-ui,sans-serif}
+main{max-width:1060px;margin:0 auto;padding:24px 18px 48px}
+h1{font-size:26px;margin:0 0 4px}
+.sub{color:var(--muted);margin:0 0 20px}
+.conn{display:inline-block;padding:2px 10px;border-radius:999px;border:1px solid var(--line);font-size:13px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin:16px 0}
+.box{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+.k{color:var(--muted);font-size:13px}
+.v{font-size:30px;font-weight:600}
+.estado{font-size:22px;font-weight:700}
+.NORMAL{color:var(--ok)}.ATENCAO{color:var(--warn)}.CRITICO{color:var(--crit)}
+h2{font-size:18px;margin:28px 0 8px}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:6px 0}
+button{font:inherit;padding:7px 14px;border-radius:8px;border:1px solid var(--air);background:transparent;color:var(--ink);cursor:pointer}
+button:hover{background:var(--air);color:#fff}
+button:focus-visible{outline:3px solid var(--air);outline-offset:2px}
+table{border-collapse:collapse;width:100%;background:var(--card);border:1px solid var(--line)}
+th,td{padding:7px 10px;border-bottom:1px solid var(--line);text-align:left;font-size:14px}
+th{color:var(--muted);font-weight:600}
+.wrap{overflow-x:auto}
+canvas{width:100%;max-width:100%;background:var(--card);border:1px solid var(--line);border-radius:10px}
+#log{height:180px;overflow:auto;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:8px 10px;font:12px/1.5 Consolas,monospace;white-space:pre-wrap}
+</style>
+</head>
+<body>
+<main>
+<h1>AirCare</h1>
+<p class="sub">Monitor de qualidade do ar e conforto térmico via MQTT (broker.hivemq.com). <span id="conn" class="conn">Conectando…</span></p>
+
+<div class="grid">
+  <div class="box"><div class="k">Temperatura</div><div class="v" id="temp">–</div></div>
+  <div class="box"><div class="k">Umidade</div><div class="v" id="umid">–</div></div>
+  <div class="box"><div class="k">Qualidade do ar (MQ-135, 0–4095)</div><div class="v" id="ar">–</div></div>
+  <div class="box"><div class="k">Estado do ambiente</div><div class="estado" id="estado">–</div><div class="k" id="atuadores">Exaustor – | Buzzer – | Modo –</div></div>
+</div>
+
+<h2>Comandos</h2>
+<div class="row"><strong style="min-width:80px">Exaustor</strong>
+  <button onclick="cmd('exaustor','ON')">Ligar</button>
+  <button onclick="cmd('exaustor','OFF')">Desligar</button>
+  <button onclick="cmd('exaustor','AUTO')">Modo automático</button></div>
+<div class="row"><strong style="min-width:80px">Buzzer</strong>
+  <button onclick="cmd('buzzer','ON')">Ligar</button>
+  <button onclick="cmd('buzzer','OFF')">Desligar</button></div>
+<div class="row"><strong style="min-width:80px">Sensores</strong>
+  <button onclick="ler('temp')">Ler temperatura</button>
+  <button onclick="ler('umid')">Ler umidade</button>
+  <button onclick="ler('ar')">Ler qualidade do ar</button></div>
+
+<h2>Tempos de resposta</h2>
+<p class="k">Sensores: tempo entre o pedido de leitura enviado pelo painel e a chegada da leitura publicada pelo ESP32. Atuadores: tempo entre o envio do comando e a confirmação de acionamento enviada pelo ESP32. Os dois tempos são medidos pelo relógio do painel (ida e volta pelo broker). São guardadas as 4 primeiras medidas de cada item.</p>
+<div class="wrap"><table><thead><tr><th>Sensor/atuador</th><th>Medida 1</th><th>Medida 2</th><th>Medida 3</th><th>Medida 4</th><th>Média</th></tr></thead><tbody id="tab"></tbody></table></div>
+<div class="row" style="margin-top:10px"><button onclick="copiar()">Copiar tabela</button><button onclick="zerar()">Zerar medidas</button><span class="k" id="msgcopia"></span></div>
+<canvas id="graf" width="1000" height="320" aria-label="Gráfico dos tempos médios"></canvas>
+
+<h2>Mensagens MQTT</h2>
+<div id="log" role="log"></div>
+</main>
+<script>
+const BASE='aircare/luizreche/';
+const itens=['Temperatura (DHT22)','Umidade (DHT22)','Qualidade do ar (MQ-135)','Exaustor (relé)','Buzzer'];
+const med={};itens.forEach(i=>med[i]=[]);
+const pend={};
+const $=id=>document.getElementById(id);
+function log(t){const l=$('log');l.textContent+=new Date().toLocaleTimeString()+'  '+t+'\n';l.scrollTop=l.scrollHeight}
+function add(item,ms){if(med[item].length<4&&ms>=0){med[item].push(ms);render()}}
+function media(a){return a.length?a.reduce((x,y)=>x+y,0)/a.length:null}
+function render(){
+  $('tab').innerHTML=itens.map(i=>{const a=med[i];const c=[0,1,2,3].map(k=>`<td>${a[k]!=null?a[k]+' ms':'–'}</td>`).join('');const m=media(a);return `<tr><td>${i}</td>${c}<td><strong>${m!=null?m.toFixed(1)+' ms':'–'}</strong></td></tr>`}).join('');
+  desenhar();
+}
+function desenhar(){
+  const cv=$('graf'),g=cv.getContext('2d'),W=cv.width,H=cv.height;g.clearRect(0,0,W,H);
+  const cs=getComputedStyle(document.documentElement);const ink=cs.getPropertyValue('--ink'),air=cs.getPropertyValue('--air'),mut=cs.getPropertyValue('--muted');
+  const vals=itens.map(i=>media(med[i])||0);const max=Math.max(100,...vals)*1.15;
+  g.font='14px Segoe UI,sans-serif';g.fillStyle=ink;g.fillText('Tempo médio de resposta (ms)',20,24);
+  const bw=(W-80)/itens.length;
+  itens.forEach((it,k)=>{const h=(vals[k]/max)*(H-90);const x=50+k*bw+bw*0.2;const y=H-50-h;
+    g.fillStyle=air;g.fillRect(x,y,bw*0.6,h);g.fillStyle=ink;g.textAlign='center';
+    if(vals[k])g.fillText(vals[k].toFixed(0)+' ms',x+bw*0.3,y-6);
+    g.fillStyle=mut;g.font='12px Segoe UI,sans-serif';g.fillText(it.replace(/ \(.*\)/,''),x+bw*0.3,H-28);g.font='14px Segoe UI,sans-serif';g.textAlign='left'});
+}
+function copiar(){
+  let t='Núm. medida\tSensor/atuador\tTempo de resposta (ms)\n';
+  itens.forEach(i=>{med[i].forEach((v,k)=>t+=`${k+1}\t${i}\t${v}\n`);const m=media(med[i]);if(m!=null)t+=`Média\t${i}\t${m.toFixed(1)}\n`});
+  navigator.clipboard.writeText(t).then(()=>$('msgcopia').textContent='Tabela copiada.',()=>$('msgcopia').textContent='Não foi possível copiar: selecione a tabela manualmente.');
+}
+function zerar(){itens.forEach(i=>med[i]=[]);render()}
+
+const cli=mqtt.connect('wss://broker.hivemq.com:8884/mqtt',{clientId:'aircare-painel-'+Math.random().toString(16).slice(2,8)});
+cli.on('connect',()=>{$('conn').textContent='Conectado ao broker';cli.subscribe(BASE+'#');log('Conectado e inscrito em '+BASE+'#')});
+cli.on('error',e=>{$('conn').textContent='Erro: '+e.message});
+cli.on('close',()=>{$('conn').textContent='Desconectado, tentando de novo…'});
+cli.on('message',(top,buf)=>{
+  const agora=Date.now();let d;try{d=JSON.parse(buf.toString())}catch(e){return}
+  log(top+'  '+buf.toString());
+  if(top===BASE+'sensores'){
+    $('temp').textContent=d.temp+' °C';$('umid').textContent=d.umid+' %';$('ar').textContent=d.ar;
+    $('estado').textContent=d.estado;$('estado').className='estado '+d.estado;
+    if(d.id&&pend[d.id]){const ms=agora-pend[d.id].t;add(pend[d.id].item,ms);log(`Leitura de ${pend[d.id].item} recebida em ${ms} ms`);delete pend[d.id]}
+  }else if(top===BASE+'status'){
+    $('atuadores').textContent=`Exaustor ${d.exaustor} | Buzzer ${d.buzzer} | Modo ${d.modo}`;
+  }else if(top===BASE+'ack'&&pend[d.id]){
+    const ms=agora-pend[d.id].t;add(pend[d.id].item,ms);log(`Confirmação de ${d.alvo} = ${d.valor} em ${ms} ms`);delete pend[d.id];
+  }
+});
+function cmd(alvo,valor){
+  const id=Math.random().toString(36).slice(2,10);
+  pend[id]={t:Date.now(),item:alvo==='exaustor'?'Exaustor (relé)':'Buzzer'};
+  cli.publish(BASE+alvo+'/cmd',JSON.stringify({id,valor}));log(`Comando enviado: ${alvo} = ${valor}`);
+}
+function ler(valor){
+  const id=Math.random().toString(36).slice(2,10);
+  const item={temp:'Temperatura (DHT22)',umid:'Umidade (DHT22)',ar:'Qualidade do ar (MQ-135)'}[valor];
+  pend[id]={t:Date.now(),item};
+  cli.publish(BASE+'sensores/ler',JSON.stringify({id,valor}));log(`Pedido de leitura: ${item}`);
+}
+render();
+</script>
+</body>
+</html>

@@ -1,0 +1,172 @@
+{
+  "version": 1,
+  "author": "Luiz Galdino de Sousa Xavier Reche",
+  "editor": "wokwi",
+  "parts": [
+    {
+      "type": "board-esp32-devkit-c-v4",
+      "id": "esp",
+      "top": 0,
+      "left": 0,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-dht22",
+      "id": "dht1",
+      "top": -150,
+      "left": -110,
+      "attrs": {
+        "temperature": "24",
+        "humidity": "55"
+      }
+    },
+    {
+      "type": "wokwi-potentiometer",
+      "id": "pot1",
+      "top": 110,
+      "left": -160,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-relay-module",
+      "id": "relay1",
+      "top": -60,
+      "left": 150,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-led",
+      "id": "led1",
+      "top": -150,
+      "left": 310,
+      "attrs": {
+        "color": "blue",
+        "label": "Exaustor"
+      }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "r1",
+      "top": -60,
+      "left": 340,
+      "rotate": 90,
+      "attrs": {
+        "value": "220"
+      }
+    },
+    {
+      "type": "wokwi-buzzer",
+      "id": "bz1",
+      "top": 110,
+      "left": 160,
+      "attrs": {
+        "volume": "0.2"
+      }
+    }
+  ],
+  "connections": [
+    [
+      "esp:TX",
+      "$serialMonitor:RX",
+      "",
+      []
+    ],
+    [
+      "esp:RX",
+      "$serialMonitor:TX",
+      "",
+      []
+    ],
+    [
+      "dht1:VCC",
+      "esp:3V3",
+      "red",
+      []
+    ],
+    [
+      "dht1:GND",
+      "esp:GND.1",
+      "black",
+      []
+    ],
+    [
+      "dht1:SDA",
+      "esp:4",
+      "gold",
+      []
+    ],
+    [
+      "pot1:VCC",
+      "esp:3V3",
+      "red",
+      []
+    ],
+    [
+      "pot1:GND",
+      "esp:GND.1",
+      "black",
+      []
+    ],
+    [
+      "pot1:SIG",
+      "esp:34",
+      "green",
+      []
+    ],
+    [
+      "relay1:VCC",
+      "esp:5V",
+      "red",
+      []
+    ],
+    [
+      "relay1:GND",
+      "esp:GND.2",
+      "black",
+      []
+    ],
+    [
+      "relay1:IN",
+      "esp:26",
+      "orange",
+      []
+    ],
+    [
+      "relay1:COM",
+      "esp:3V3",
+      "red",
+      []
+    ],
+    [
+      "relay1:NO",
+      "led1:A",
+      "blue",
+      []
+    ],
+    [
+      "led1:C",
+      "r1:1",
+      "black",
+      []
+    ],
+    [
+      "r1:2",
+      "esp:GND.2",
+      "black",
+      []
+    ],
+    [
+      "bz1:2",
+      "esp:27",
+      "purple",
+      []
+    ],
+    [
+      "bz1:1",
+      "esp:GND.2",
+      "black",
+      []
+    ]
+  ],
+  "dependencies": {}
+}

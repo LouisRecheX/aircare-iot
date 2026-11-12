@@ -1,0 +1,5 @@
+# Bibliotecas usadas no Wokwi
+PubSubClient
+ArduinoJson
+DHT sensor library
+Adafruit Unified Sensor
